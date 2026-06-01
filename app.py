@@ -7,43 +7,43 @@ import warnings
 from datetime import datetime
 import io
 
-# ==================== 网页基础配置 / Configuración Básica ====================
+# ==================== Configuración Básica / 网页基础配置 ====================
 st.set_page_config(page_title="Sistema de Picking Inteligente", page_icon="📦", layout="wide")
 
-st.title("📦 智能拣货单（Picking）自动生成系统")
-st.subheader("Sistema de Generación Automática de Lista de Picking")
+st.title("📦 Sistema de Generación Automática de Lista de Picking")
+st.subheader("智能拣货单（Picking）自动生成系统")
 st.markdown("---")
 
-# 侧边栏说明 / Instrucciones en la barra lateral
-st.sidebar.header("💡 使用说明 / Instrucciones")
+# Instrucciones en la barra lateral / 侧边栏说明
+st.sidebar.header("💡 Instrucciones / 使用说明")
 st.sidebar.info(
-    "**[中文]**\n"
-    "1. 系统会自动根据特征列识别文件，文件名叫什么都不影响。\n"
-    "2. 系统自动从出库单 O 列提取业务日期用于命名。\n"
-    "3. 转换完成后，请在右侧核对【总箱数】是否账实相符。\n\n"
-    "--- \n\n"
     "**[ESPAÑOL]**\n"
     "1. El sistema identificará los archivos automáticamente según las columnas, el nombre del archivo no importa.\n"
     "2. El sistema extrae automáticamente la fecha de la columna O de la hoja de salida para el nombre.\n"
-    "3. Después de la conversión, verifique si el [Total de Cajas] es correcto."
+    "3. Después de la conversión, verifique si el [Total de Cajas] es correcto.\n\n"
+    "--- \n\n"
+    "**[中文]**\n"
+    "1. 系统会自动根据特征列识别文件，文件名叫什么都不影响。\n"
+    "2. 系统自动从出库单 O 列提取业务日期用于命名。\n"
+    "3. 转换完成后，请在右侧核对【总箱数】是否账实相符。"
 )
 
-# ==================== 文件上传组件 / Componentes de Carga ====================
+# ==================== Componentes de Carga / 文件上传组件 ====================
 col1, col2 = st.columns(2)
 with col1:
     file_a = st.file_uploader(
-        "1. 请上传【当日出库单表 / 渠道表】 | Cargue la [Hoja de Salida / Canal] (.xlsx, .xls)", 
+        "1. Cargue la [Hoja de Salida / Canal] (.xlsx, .xls) | 请上传【当日出库单表 / 渠道表】", 
         type=["xlsx", "xls"]
     )
 with col2:
     file_b = st.file_uploader(
-        "2. 请上传【整柜仓库库存表 / 库位表】 | Cargue la [Tabla de Inventario / Ubicación] (.xlsx, .xls)", 
+        "2. Cargue la [Tabla de Inventario / Ubicación] (.xlsx, .xls) | 请上传【整柜仓库库存表 / 库位表】", 
         type=["xlsx", "xls"]
     )
 
-# ==================== 核心业务逻辑 / Lógica Central ====================
+# ==================== Lógica Central / 核心业务逻辑 ====================
 if file_a and file_b:
-    with st.spinner("🚀 正在智能识别并精准处理数据，请稍候... | Procesando datos con precisión, por favor espere..."):
+    with st.spinner("🚀 Procesando datos con precisión, por favor espere... | 正在智能识别并精准处理数据，请稍候..."):
         try:
             warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
             
@@ -68,9 +68,9 @@ if file_a and file_b:
                 df_inventory_raw = pd.read_excel(file_b, dtype=str)
                 
             if df_outbound_raw is None or df_inventory_raw is None:
-                st.error("❌ 智能识别失败！请确认上传的文件中包含正确的特征列名。 | Error de identificación: Asegúrese de que los archivos contengan las columnas correctas.")
+                st.error("❌ Error de identificación: Asegúrese de que los archivos contengan las columnas correctas. | 智能识别失败！请确认上传的文件中包含正确的特征列名。")
             else:
-                # 📅 日期提取 / Extracción de Fecha
+                # 📅 Extracción de Fecha / 日期提取
                 fecha_extract = None
                 if len(df_outbound_raw.columns) >= 15:
                     col_o_data = df_outbound_raw.iloc[:, 14].dropna()
@@ -82,7 +82,7 @@ if file_a and file_b:
                             break
                 if not fecha_extract:
                     fecha_extract = datetime.now().strftime("%Y-%m-%d")
-                    st.warning(f"⚠️ 未在表格 O 列检测到日期，已采用系统当前日期。 | No se detectó fecha en la columna O, se usó la fecha actual.")
+                    st.warning(f"⚠️ No se detectó fecha en la columna O, se usó la fecha actual. | 未在表格 O 列检测到日期，已采用系统当前日期。")
 
                 FINAL_OUTPUT_FILE = f'Picking#{fecha_extract}.xlsx'
 
@@ -118,14 +118,14 @@ if file_a and file_b:
                     df_step1.drop(columns=['B'], inplace=True)
                     df_step1.rename(columns={'B_x': 'B'}, inplace=True)
 
-                # ==================== 过滤 / Filtro ====================
+                # ==================== Filtro / 过滤 ====================
                 m_series = df_step1['M'].astype(str).str.strip()
                 u_series = df_step1['U'].astype(str).str.strip().str.upper()
                 condition_m = m_series.str.contains('正常派送', na=False) | m_series.str.contains('换箱唛', na=False) | m_series.str.contains('换产品标', na=False)
                 condition_u = u_series.str.contains('CPA', na=False) | u_series.str.contains('RC03', na=False) | u_series.str.contains('MXCD14', na=False)
                 df_filtered = df_step1[condition_m & condition_u].copy()
 
-                # ==================== 压缩算法 / Algoritmo AN ====================
+                # ==================== Algoritmo AN / 压缩算法 ====================
                 def smart_compress_barcodes(series):
                     barcodes = sorted(list(set(series.dropna().astype(str).str.strip())))
                     if not barcodes: return ""
@@ -177,7 +177,7 @@ if file_a and file_b:
                         final_result_blocks.append(combined_prefix_str)
                     return ", ".join(final_result_blocks)
 
-                # ==================== 分组与聚合 / Agrupación ====================
+                # ==================== Agrupación / 分组与聚合 ====================
                 df_filtered['Box_8_Key'] = df_filtered['AN'].astype(str).str.strip().str[:8]
                 df_filtered['Group_Key'] = df_filtered['A'].astype(str).str.strip() + "_" + df_filtered['Box_8_Key']
 
@@ -196,7 +196,7 @@ if file_a and file_b:
                 df_grouped['AP'] = df_grouped['AP_Num'].round(3)
                 df_grouped['AQ'] = df_grouped['AQ_Num'].astype(int)
 
-                # 排序 / Ordenación
+                # Ordenación / 排序
                 df_grouped['Sort_Loc'] = df_grouped['位置'].apply(lambda x: "ZZZZZ" if pd.isna(x) or str(x).strip() == "" else str(x).strip().split('\n')[0])
                 min_loc_per_order = df_grouped.groupby('A')['Sort_Loc'].min().to_dict()
                 df_grouped['Order_Min_Loc'] = df_grouped['A'].map(min_loc_per_order)
@@ -204,12 +204,12 @@ if file_a and file_b:
                 df_grouped.sort_values(by=['U_Count', 'U', 'M', 'Order_Min_Loc', 'A', 'Sort_Loc'], ascending=True, inplace=True)
                 df_grouped.drop(columns=['Sort_Loc', 'Order_Min_Loc', 'U_Count'], inplace=True)
 
-                # 物理列序 / Columnas Finales
+                # Columnas Finales / 物理列序
                 outbound_header_map.update({'空白列': 'Control', '星号条码': 'Codigo de Barras OS'})
                 final_cols = ['空白列', '星号条码', 'E', 'AN', 'M', 'K', 'AQ', '位置', 'U', 'O', 'AO', 'AP', 'A']
                 header_row_list = [outbound_header_map[col] for col in final_cols]
 
-                # ==================== 动态大看板 / Estructura de Salida ====================
+                # ==================== Estructura de Salida / 动态大看板 ====================
                 def clean_etiqueta_text(m_val, u_val):
                     m_str, u_str = str(m_val).strip(), str(u_val).strip().upper()
                     if "正常派送" in m_str: return "No etiqueta"
@@ -237,7 +237,7 @@ if file_a and file_b:
                     row_dict = row.to_dict()
                     row_dict['空白列'], row_dict['M'] = "", short_tag
                     
-                    # 🔒 严格维持原版算法：绑定合并缩写后的 D 列进行星号包装
+                    # 🔒 Mantenido el algoritmo original: Empaqueta la columna D (AN) con asteriscos para código de barra
                     row_dict['星号条码'] = f'="*"&D{current_excel_row}&"*"'
                     
                     dynamic_rows.append(row_dict); current_excel_row += 1
@@ -246,7 +246,7 @@ if file_a and file_b:
                 df_dynamic_output = pd.DataFrame(dynamic_rows, columns=final_cols)
                 df_dynamic_output.rename(columns=outbound_header_map, inplace=True)
 
-                # ==================== openpyxl 写入 / Escritura en Memoria ====================
+                # ==================== Escritura en Memoria / openpyxl 写入 ====================
                 excel_buffer = io.BytesIO()
                 with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
                     df_dynamic_output.to_excel(writer, index=False, sheet_name='Picking List')
@@ -263,10 +263,10 @@ if file_a and file_b:
                 
                 excel_data = excel_buffer.getvalue()
 
-                # ==================== 网页端双语看板 / Vista de Éxito Bilíngüe ====================
+                # ==================== Vista de Éxito Bilíngüe / 网页端双语看板 ====================
                 st.success(
-                    f"🎉 拣货单处理成功！提取业务日期：{fecha_extract} \n\n"
-                    f"¡Lista de picking generada con éxito! Fecha extraída: {fecha_extract}"
+                    f"¡Lista de picking generada con éxito! Fecha extraída: {fecha_extract} \n\n"
+                    f"🎉 拣货单处理成功！提取业务日期：{fecha_extract}"
                 )
                 
                 aq_real_name = outbound_header_map['AQ']
@@ -275,15 +275,15 @@ if file_a and file_b:
                 res_col1, res_col2 = st.columns(2)
                 with res_col1:
                     st.metric(
-                        label="📊 最终账目总箱数 | Total de Cajas Seguro", 
-                        value=f"{total_boxes} 箱 / Cajas"
+                        label="📊 Total de Cajas Seguro | 最终账目总箱数", 
+                        value=f"{total_boxes} Cajas / 箱"
                     )
                 with res_col2:
                     st.download_button(
-                        label=f"📥 点击下载 | Descargar {FINAL_OUTPUT_FILE}",
+                        label=f"📥 Descargar {FINAL_OUTPUT_FILE} | 点击下载",
                         data=excel_data,
                         file_name=FINAL_OUTPUT_FILE,
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
         except Exception as e:
-            st.error(f"❌ 运行异常 / Error de ejecución: {e}")
+            st.error(f"❌ Error de ejecución / 运行异常: {e}")
