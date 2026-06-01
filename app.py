@@ -237,8 +237,8 @@ if file_a and file_b:
                     row_dict = row.to_dict()
                     row_dict['空白列'], row_dict['M'] = "", short_tag
                     
-                    # 🔒 Mantenido el algoritmo original: Empaqueta la columna D (AN) con asteriscos para código de barra
-                    row_dict['星号条码'] = f'="*"&D{current_excel_row}&"*"'
+                    # 🎯 【精准修正】将星号包裹条码公式强行绑定至最终生成的物理列 M 列（对应具体当前所在行）
+                    row_dict['星号条码'] = f'="*"&M{current_excel_row}&"*"'
                     
                     dynamic_rows.append(row_dict); current_excel_row += 1
                     last_u, last_m = current_u, current_m
@@ -264,26 +264,3 @@ if file_a and file_b:
                 excel_data = excel_buffer.getvalue()
 
                 # ==================== Vista de Éxito Bilíngüe / 网页端双语看板 ====================
-                st.success(
-                    f"¡Lista de picking generada con éxito! Fecha extraída: {fecha_extract} \n\n"
-                    f"🎉 拣货单处理成功！提取业务日期：{fecha_extract}"
-                )
-                
-                aq_real_name = outbound_header_map['AQ']
-                total_boxes = int(pd.to_numeric(df_dynamic_output[aq_real_name], errors='coerce').fillna(0).sum())
-                
-                res_col1, res_col2 = st.columns(2)
-                with res_col1:
-                    st.metric(
-                        label="📊 Total de Cajas Seguro | 最终账目总箱数", 
-                        value=f"{total_boxes} Cajas / 箱"
-                    )
-                with res_col2:
-                    st.download_button(
-                        label=f"📥 Descargar {FINAL_OUTPUT_FILE} | 点击下载",
-                        data=excel_data,
-                        file_name=FINAL_OUTPUT_FILE,
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
-        except Exception as e:
-            st.error(f"❌ Error de ejecución / 运行异常: {e}")
