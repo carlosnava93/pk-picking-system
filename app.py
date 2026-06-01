@@ -29,16 +29,14 @@ st.sidebar.info(
 )
 
 # ==================== Funciones de Ayuda / 独立工具函数 ====================
-# 🎯 【精准提取体积方数】独立移出 try 块，防止引发 Python 语法解析紊乱
+# 🎯 【精准提取体积方数】
 def parse_cbm(val):
     if pd.isna(val): 
         return 0.0
     val_str = str(val).lower()
     nums = [float(n) for n in re.findall(r'\d+\.?\d*', val_str)]
     if len(nums) >= 3:
-        # 自动适配 长*宽*高 的连乘计算
         prod = nums[0] * nums[1] * nums[2]
-        # 检查单位，如果是 cm 级别或乘积很大，则除以 1000000 转化为立方米(CBM)
         if 'cm' in val_str or prod > 1000:
             return prod / 1000000.0
         return prod
@@ -96,17 +94,19 @@ def smart_compress_barcodes(series):
         final_result_blocks.append(combined_prefix_str)
     return ", ".join(final_result_blocks)
 
-# 动态生成标准 A-Z 字母列索引
+# 🎯 【彻底修复】动态生成标准 A-Z 字母列索引函数，确保100%安全返回正确长度的列名
 def rename_cols_to_letters(df):
+    df_copy = df.copy()
     new_cols = []
-    for i in range(len(df.columns)):
+    for i in range(len(df_copy.columns)):
         idx = i
         letters = ""
         while idx >= 0:
             letters = chr(idx % 26 + ord('A')) + letters
             idx = idx // 26 - 1
-        df.columns = new_cols
-    return df
+        new_cols.append(letters)
+    df_copy.columns = new_cols
+    return df_copy
 
 # ==================== Componentes de Carga / 文件上传组件 ====================
 col1, col2 = st.columns(2)
@@ -182,8 +182,8 @@ if file_a and file_b:
                     'AO': 'Cubicos', 'AP': 'Pesos/KG'
                 }
 
-                df_outbound = rename_cols_to_letters(df_outbound_raw.copy())
-                df_inventory = rename_cols_to_letters(df_inventory_raw.copy())
+                df_outbound = rename_cols_to_letters(df_outbound_raw)
+                df_inventory = rename_cols_to_letters(df_inventory_raw)
 
                 # ==================== VLOOKUP ====================
                 df_inv_clean = df_inventory[['B', 'G']].dropna(subset=['B']).drop_duplicates(subset=['B'])
@@ -212,7 +212,6 @@ if file_a and file_b:
                 df_filtered['Box_8_Key'] = df_filtered['AN'].astype(str).str.strip().str[:8]
                 df_filtered['Group_Key'] = df_filtered['A'].astype(str).str.strip() + "_" + df_filtered['Box_8_Key']
 
-                # 调用外部独立的函数计算方数
                 df_filtered['CBM_Value'] = df_filtered['AO'].apply(parse_cbm)
                 df_filtered['AP_Num'] = df_filtered['AP'].apply(lambda x: float(re.search(r'\d+\.?\d*', str(x)).group()) if pd.notna(x) and re.search(r'\d+\.?\d*', str(x)) else 0.0)
                 df_filtered['AQ_Num'] = pd.to_numeric(df_filtered['AQ'], errors='coerce').fillna(0.0)
