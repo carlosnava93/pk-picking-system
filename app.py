@@ -19,12 +19,12 @@ st.sidebar.header("💡 Instrucciones / 使用说明")
 st.sidebar.info(
     "**[ESPAÑOL]**\n"
     "1. El sistema identificará los archivos automáticamente según las columnas, el nombre del archivo no importa.\n"
-    "2. El sistema extrae automáticamente la fecha de la columna O de la hoja de salida para el nombre.\n"
+    "2. El sistema extrae automáticamente la fecha de la hoja de salida para el nombre.\n"
     "3. Después de la conversión, verifique si el [Total de Cajas] es correcto.\n\n"
     "--- \n\n"
     "**[中文]**\n"
     "1. 系统会自动根据特征列识别文件，文件名叫什么都不影响。\n"
-    "2. 系统自动从出库单 O 列提取业务日期用于命名。\n"
+    "2. 系统自动从出库单中智能精准搜索业务日期用于命名。\n"
     "3. 转换完成后，请在右侧核对【总箱数】是否账实相符。"
 )
 
@@ -70,19 +70,30 @@ if file_a and file_b:
             if df_outbound_raw is None or df_inventory_raw is None:
                 st.error("❌ Error de identificación: Asegúrese de que los archivos contengan las columnas correctas. | 智能识别失败！请确认上传的文件中包含正确的特征列名。")
             else:
-                # 📅 Extracción de Fecha / 日期提取
+                # 📅 【重构：全表智能动态日期检索】
                 fecha_extract = None
-                if len(df_outbound_raw.columns) >= 15:
-                    col_o_data = df_outbound_raw.iloc[:, 14].dropna()
-                    for val in col_o_data:
-                        val_str = str(val).strip()
-                        match_date = re.search(r'(\d{4}[-/]\d{2}[-/]\d{2})', val_str)
+                for col_name in df_outbound_raw.columns:
+                    # 优先在创建时间或出库时间相关列找
+                    if any(k in str(col_name).lower() for k in ['time', 'date', '时间', '日期']):
+                        sample_data = df_outbound_raw[col_name].dropna().head(10)
+                        for val in sample_data:
+                            match_date = re.search(r'(\d{4}[-/]\d{2}[-/]\d{2})', str(val))
+                            if match_date:
+                                fecha_extract = match_date.group(1).replace('/', '-')
+                                break
+                    if fecha_extract: break
+                
+                # 如果还是没找到，扩大到全表搜索
+                if not fecha_extract:
+                    for val in df_outbound_raw.values.flatten():
+                        match_date = re.search(r'(\d{4}[-/]\d{2}[-/]\d{2})', str(val))
                         if match_date:
                             fecha_extract = match_date.group(1).replace('/', '-')
                             break
+                            
                 if not fecha_extract:
                     fecha_extract = datetime.now().strftime("%Y-%m-%d")
-                    st.warning(f"⚠️ No se detectó fecha en la columna O, se usó la fecha actual. | 未在表格 O 列检测到日期，已采用系统当前日期。")
+                    st.warning(f"⚠️ No se detectó fecha en el archivo, se usó la fecha actual. | 未在表格中检索到业务日期，已采用系统当前日期。")
 
                 FINAL_OUTPUT_FILE = f'Picking#{fecha_extract}.xlsx'
 
@@ -237,7 +248,7 @@ if file_a and file_b:
                     row_dict = row.to_dict()
                     row_dict['空白列'], row_dict['M'] = "", short_tag
                     
-                    # 🎯 公式强制精准绑定生成的 M 列
+                    # 🔒 公式强制精准绑定生成的最终物理 M 列
                     row_dict['星号条码'] = f'="*"&M{current_excel_row}&"*"'
                     
                     dynamic_rows.append(row_dict); current_excel_row += 1
