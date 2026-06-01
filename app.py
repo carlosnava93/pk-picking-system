@@ -201,3 +201,89 @@ if file_a and file_b:
                 min_loc_per_order = df_grouped.groupby('A')['Sort_Loc'].min().to_dict()
                 df_grouped['Order_Min_Loc'] = df_grouped['A'].map(min_loc_per_order)
                 df_grouped['U_Count'] = df_grouped['U'].map(df_grouped['U'].value_counts())
+                df_grouped.sort_values(by=['U_Count', 'U', 'M', 'Order_Min_Loc', 'A', 'Sort_Loc'], ascending=True, inplace=True)
+                df_grouped.drop(columns=['Sort_Loc', 'Order_Min_Loc', 'U_Count'], inplace=True)
+
+                # Columnas Finales / 物理列序
+                outbound_header_map.update({'空白列': 'Control', '星号条码': 'Codigo de Barras OS'})
+                final_cols = ['空白列', '星号条码', 'E', 'AN', 'M', 'K', 'AQ', '位置', 'U', 'O', 'AO', 'AP', 'A']
+                header_row_list = [outbound_header_map[col] for col in final_cols]
+
+                # ==================== Estructura de Salida / 动态大看板 ====================
+                def clean_etiqueta_text(m_val, u_val):
+                    m_str, u_str = str(m_val).strip(), str(u_val).strip().upper()
+                    if "正常派送" in m_str: return "No etiqueta"
+                    elif "换箱唛" in m_str and "HB-MX" in m_str and "CPA" in u_str: return "Si etiqueta"
+                    elif "换箱唛" in m_str: return "Si etiqueta cajas"
+                    elif "换产品标" in m_str: return "Re-etiqueta prodcutos"
+                    return re.sub(r'^[\u4e00-\u9fa5]+-+', '', m_str)
+
+                dynamic_rows = []
+                last_u, last_m, current_excel_row = None, None, 2
+
+                for idx, row in df_grouped.iterrows():
+                    current_u, current_m = str(row['U']).strip(), str(row['M']).strip()
+                    short_tag = clean_etiqueta_text(current_m, current_u)
+                    info_text = f"{current_u}+{short_tag}"
+                    
+                    if last_u is None or current_u != last_u or current_m != last_m:
+                        if last_u is not None:
+                            dynamic_rows.append({col: "" for col in final_cols}); current_excel_row += 1
+                        info_row = {col: "" for col in final_cols}; info_row['空白列'] = info_text
+                        dynamic_rows.append(info_row); current_excel_row += 1
+                        header_row_dict = {final_cols[i]: header_row_list[i] for i in range(len(final_cols))}
+                        dynamic_rows.append(header_row_dict); current_excel_row += 1
+                        
+                    row_dict = row.to_dict()
+                    row_dict['空白列'], row_dict['M'] = "", short_tag
+                    
+                    # 🎯 公式强制精准绑定生成的 M 列
+                    row_dict['星号条码'] = f'="*"&M{current_excel_row}&"*"'
+                    
+                    dynamic_rows.append(row_dict); current_excel_row += 1
+                    last_u, last_m = current_u, current_m
+                    
+                df_dynamic_output = pd.DataFrame(dynamic_rows, columns=final_cols)
+                df_dynamic_output.rename(columns=outbound_header_map, inplace=True)
+
+                # ==================== Escritura en Memoria / openpyxl 写入 ====================
+                excel_buffer = io.BytesIO()
+                with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                    df_dynamic_output.to_excel(writer, index=False, sheet_name='Picking List')
+                    worksheet = writer.sheets['Picking List']
+                    for col in worksheet.columns:
+                        max_len = 0
+                        for cell in col:
+                            val = str(cell.value or '')
+                            if "+" in val and any(k in val for k in ["etiqueta", "prodcutos"]): continue
+                            lines = val.split('\n')
+                            for line in lines:
+                                if len(line) > max_len: max_len = len(line)
+                        worksheet.column_dimensions[col[0].column_letter].width = max(max_len + 3, 12)
+                
+                excel_data = excel_buffer.getvalue()
+
+                # ==================== Vista de Éxito Bilíngüe / 网页端双语看板 ====================
+                st.success(
+                    f"¡Lista de picking generada con éxito! Fecha extraída: {fecha_extract} \n\n"
+                    f"🎉 拣货单处理成功！提取业务日期：{fecha_extract}"
+                )
+                
+                aq_real_name = outbound_header_map['AQ']
+                total_boxes = int(pd.to_numeric(df_dynamic_output[aq_real_name], errors='coerce').fillna(0).sum())
+                
+                res_col1, res_col2 = st.columns(2)
+                with res_col1:
+                    st.metric(
+                        label="📊 Total de Cajas Seguro | 最终账目总箱数", 
+                        value=f"{total_boxes} Cajas / 箱"
+                    )
+                with res_col2:
+                    st.download_button(
+                        label=f"📥 Descargar {FINAL_OUTPUT_FILE} | 点击下载",
+                        data=excel_data,
+                        file_name=FINAL_OUTPUT_FILE,
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+        except Exception as e:
+            st.error(f"❌ Error de ejecución / 运行异常: {e}")
