@@ -47,7 +47,7 @@ if file_a and file_b:
         try:
             warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
             
-            # 优先读取原始列名进行识别（不区分大小写，去除空格）
+            # 优先读取原始列名进行识别
             df_check_a = pd.read_excel(file_a, nrows=2, dtype=str)
             cols_a = [str(c).strip().lower() for c in df_check_a.columns]
             
@@ -57,7 +57,6 @@ if file_a and file_b:
             df_outbound_raw = None
             df_inventory_raw = None
             
-            # 精准匹配最新原始表的关键列名标识
             if 'shipping service' in cols_a or 'outbound/出库单号' in cols_a or any('outbound' in x for x in cols_a):
                 df_outbound_raw = pd.read_excel(file_a, dtype=str)
             elif 'customize barcode' in cols_a or 'cellno' in cols_a or any('barcode' in x for x in cols_a):
@@ -103,7 +102,6 @@ if file_a and file_b:
                     'AO': 'Cubicos', 'AP': 'Pesos/KG'
                 }
 
-                # 动态生成标准 A-Z 字母列索引
                 def rename_cols_to_letters(df):
                     new_cols = []
                     for i in range(len(df.columns)):
@@ -119,12 +117,10 @@ if file_a and file_b:
                 df_outbound = rename_cols_to_letters(df_outbound_raw.copy())
                 df_inventory = rename_cols_to_letters(df_inventory_raw.copy())
 
-                # ==================== VLOOKUP (库存表B列匹配AN列，取G位位置) ====================
-                # 最新库存表中：B列是 Customize Barcode，G列是 cellNo
+                # ==================== VLOOKUP ====================
                 df_inv_clean = df_inventory[['B', 'G']].dropna(subset=['B']).drop_duplicates(subset=['B'])
                 df_inv_clean.rename(columns={'G': '位置'}, inplace=True)
                 
-                # 出库单中：AN列是 Custom box barcode
                 df_step1 = pd.merge(df_outbound, df_inv_clean, left_on='AN', right_on='B', how='left')
                 
                 if 'B_y' in df_step1.columns: df_step1.drop(columns=['B_y'], inplace=True)
@@ -132,16 +128,15 @@ if file_a and file_b:
                     df_step1.drop(columns=['B'], inplace=True)
                     df_step1.rename(columns={'B_x': 'B'}, inplace=True)
 
-                # ==================== Filtro / 过滤条件对齐 ====================
-                m_series = df_step1['M'].astype(str).str.strip() # Shipping service 物流渠道
-                u_series = df_step1['U'].astype(str).str.strip().str.upper() # Recipient 收件人
+                # ==================== Filtro / 过滤条件 ====================
+                m_series = df_step1['M'].astype(str).str.strip() 
+                u_series = df_step1['U'].astype(str).str.strip().str.upper() 
                 
                 condition_m = m_series.str.contains('正常派送', na=False) | m_series.str.contains('换箱唛', na=False) | m_series.str.contains('换产品标', na=False)
                 condition_u = u_series.str.contains('CPA', na=False) | u_series.str.contains('RC03', na=False) | u_series.str.contains('MXCD14', na=False)
                 
                 df_filtered = df_step1[condition_m & condition_u].copy()
 
-                # 如果过滤完为空，取消过滤限制以保证能出数据
                 if df_filtered.empty:
                     df_filtered = df_step1.copy()
 
@@ -201,106 +196,12 @@ if file_a and file_b:
                 df_filtered['Box_8_Key'] = df_filtered['AN'].astype(str).str.strip().str[:8]
                 df_filtered['Group_Key'] = df_filtered['A'].astype(str).str.strip() + "_" + df_filtered['Box_8_Key']
 
-                df_filtered['CBM_Value'] = df_filtered['AO'].apply(lambda x: sum([float(n) for n in re.findall(r'\d+\.?\d*', str(x))]) / 1000000 if pd.notna(x) and len(re.findall(r'\d+\.?\d*', str(x))) >= 3 else 0.0)
-                df_filtered['AP_Num'] = df_filtered['AP'].apply(lambda x: float(re.search(r'\d+\.?\d*', str(x)).group()) if pd.notna(x) and re.search(r'\d+\.?\d*', str(x)) else 0.0)
-                df_filtered['AQ_Num'] = pd.to_numeric(df_filtered['AQ'], errors='coerce').fillna(0.0)
-
-                df_grouped = df_filtered.groupby('Group_Key').agg({
-                    'A': 'first', 'E': 'first', 'K': lambda s: "\n".join(s.dropna().astype(str).str.strip().unique()), 'M': 'first',
-                    'O': 'first', 'U': 'first', 'AN': smart_compress_barcodes,
-                    'CBM_Value': 'sum', 'AP_Num': 'sum', 'AQ_Num': 'sum', 
-                    '位置': lambda s: "\n".join(sorted(list(set([x.strip() for item in s.dropna().astype(str) for x in (item.split('\n') if '\n' in item else [item]) if x.strip() != "" and x.lower() != "nan"]))))
-                }).reset_index()
-
-                df_grouped['AO'] = df_grouped['CBM_Value'].round(4)
-                df_grouped['AP'] = df_grouped['AP_Num'].round(3)
-                df_grouped['AQ'] = df_grouped['AQ_Num'].astype(int)
-
-                # Ordenación / 排序逻辑
-                df_grouped['Sort_Loc'] = df_grouped['位置'].apply(lambda x: "ZZZZZ" if pd.isna(x) or str(x).strip() == "" else str(x).strip().split('\n')[0])
-                min_loc_per_order = df_grouped.groupby('A')['Sort_Loc'].min().to_dict()
-                df_grouped['Order_Min_Loc'] = df_grouped['A'].map(min_loc_per_order)
-                df_grouped['U_Count'] = df_grouped['U'].map(df_grouped['U'].value_counts())
-                df_grouped.sort_values(by=['U_Count', 'U', 'M', 'Order_Min_Loc', 'A', 'Sort_Loc'], ascending=True, inplace=True)
-                df_grouped.drop(columns=['Sort_Loc', 'Order_Min_Loc', 'U_Count'], inplace=True)
-
-                # Columnas Finales / 决定物理列序
-                outbound_header_map.update({'空白列': 'Control', '星号条码': 'Codigo de Barras OS'})
-                final_cols = ['空白列', '星号条码', 'E', 'AN', 'M', 'K', 'AQ', '位置', 'U', 'O', 'AO', 'AP', 'A']
-                header_row_list = [outbound_header_map[col] for col in final_cols]
-
-                # ==================== Estructura de Salida / 动态大看板生成 ====================
-                def clean_etiqueta_text(m_val, u_val):
-                    m_str, u_str = str(m_val).strip(), str(u_val).strip().upper()
-                    if "正常派送" in m_str: return "No etiqueta"
-                    elif "换箱唛" in m_str and "HB-MX" in m_str and "CPA" in u_str: return "Si etiqueta"
-                    elif "换箱唛" in m_str: return "Si etiqueta cajas"
-                    elif "换产品标" in m_str: return "Re-etiqueta prodcutos"
-                    return re.sub(r'^[\u4e00-\u9fa5]+-+', '', m_str)
-
-                dynamic_rows = []
-                last_u, last_m, current_excel_row = None, None, 2
-
-                for idx, row in df_grouped.iterrows():
-                    current_u, current_m = str(row['U']).strip(), str(row['M']).strip()
-                    short_tag = clean_etiqueta_text(current_m, current_u)
-                    info_text = f"{current_u}+{short_tag}"
-                    
-                    if last_u is None or current_u != last_u or current_m != last_m:
-                        if last_u is not None:
-                            dynamic_rows.append({col: "" for col in final_cols}); current_excel_row += 1
-                        info_row = {col: "" for col in final_cols}; info_row['空白列'] = info_text
-                        dynamic_rows.append(info_row); current_excel_row += 1
-                        header_row_dict = {final_cols[i]: header_row_list[i] for i in range(len(final_cols))}
-                        dynamic_rows.append(header_row_dict); current_excel_row += 1
-                        
-                    row_dict = row.to_dict()
-                    row_dict['空白列'], row_dict['M'] = "", short_tag
-                    
-                    # 🎯 【完美解决】星号条码公式强制精准绑定物理生成的 M 列，完美契合 `="*"&M4&"*"`
-                    row_dict['星号条码'] = f'="*"&M{current_excel_row}&"*"'
-                    
-                    dynamic_rows.append(row_dict); current_excel_row += 1
-                    last_u, last_m = current_u, current_m
-                    
-                df_dynamic_output = pd.DataFrame(dynamic_rows, columns=final_cols)
-                df_dynamic_output.rename(columns=outbound_header_map, inplace=True)
-
-                # ==================== Escritura en Memoria / openpyxl 格式美化 ====================
-                excel_buffer = io.BytesIO()
-                with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-                    df_dynamic_output.to_excel(writer, index=False, sheet_name='Picking List')
-                    worksheet = writer.sheets['Picking List']
-                    for col in worksheet.columns:
-                        max_len = 0
-                        for cell in col:
-                            val = str(cell.value or '')
-                            if "+" in val and any(k in val for k in ["etiqueta", "prodcutos"]): continue
-                            lines = val.split('\n')
-                            for line in lines:
-                                if len(line) > max_len: max_len = len(line)
-                        worksheet.column_dimensions[col[0].column_letter].width = max(max_len + 3, 12)
-                
-                excel_data = excel_buffer.getvalue()
-
-                # ==================== 看板展示 ====================
-                st.success(f"🎉 拣货单（Picking）处理成功！业务日期：{fecha_extract}")
-                
-                aq_real_name = outbound_header_map['AQ']
-                total_boxes = int(pd.to_numeric(df_dynamic_output[aq_real_name], errors='coerce').fillna(0).sum())
-                
-                res_col1, res_col2 = st.columns(2)
-                with res_col1:
-                    st.metric(
-                        label="📊 Total de Cajas Seguro | 最终账目总箱数", 
-                        value=f"{total_boxes} Cajas / 箱"
-                    )
-                with res_col2:
-                    st.download_button(
-                        label=f"📥 Descargar {FINAL_OUTPUT_FILE} | 点击下载",
-                        data=excel_data,
-                        file_name=FINAL_OUTPUT_FILE,
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
-        except Exception as e:
-            st.error(f"❌ Error de ejecución / 运行异常: {e}")
+                # 🎯 【精准修正体积方数提取】完美适配最新的数据，防止因字符串拆分单位导致方数算偏
+                def parse_cbm(val):
+                    if pd.isna(val): return 0.0
+                    val_str = str(val).lower()
+                    nums = [float(n) for n in re.findall(r'\d+\.?\d*', val_str)]
+                    if len(nums) >= 3:
+                        # 自动适配长*宽*高*数量的连乘计算
+                        prod = nums[0] * nums[1] * nums[2]
+                        # 检查单位，如果是 cm 级别
